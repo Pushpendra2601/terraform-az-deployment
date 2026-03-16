@@ -3,7 +3,7 @@ variable "resource_group_name" {
 }
 
 variable "location" {
-  default = "East US"
+  default = "eastus2"
 }
 
 variable "app_name" {
