@@ -37,16 +37,15 @@ jobs:
         with:
           terraform_version: 1.7.0
 
-      # bootstrap.sh only runs if the tfstate storage account doesn't exist yet
+      # Check if tfstate resource group EXISTS in our subscription — not global name availability
       - name: Bootstrap Remote State (if not exists)
         run: |
-          EXISTS=$(az storage account check-name --name tfstatestore \
-            --query nameAvailable -o tsv 2>/dev/null || echo "true")
-          if [ "$EXISTS" = "true" ]; then
-            echo "Running bootstrap..."
+          RG_EXISTS=$(az group exists --name tfstate-rg)
+          if [ "$RG_EXISTS" = "false" ]; then
+            echo "Resource group not found. Running bootstrap..."
             bash bootstrap.sh
           else
-            echo "Backend already exists, skipping bootstrap."
+            echo "Backend resource group already exists, skipping bootstrap."
           fi
 
       - name: Terraform Init

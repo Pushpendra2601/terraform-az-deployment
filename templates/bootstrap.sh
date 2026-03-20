@@ -9,8 +9,9 @@ RESOURCE_GROUP="tfstate-rg"
 LOCATION="eastus2"
 CONTAINER="tfstate"
 
-# Unique storage account name (lowercase, max 24 chars)
-STORAGE_ACCOUNT="tfstatestore$(echo $RANDOM | cut -c1-5)"
+# Use subscription ID suffix to ensure uniqueness across Azure
+SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+STORAGE_ACCOUNT="tfstate$(echo $SUBSCRIPTION_ID | tr -d '-' | cut -c1-16)"
 
 echo "==> Creating resource group: $RESOURCE_GROUP"
 az group create \
@@ -33,10 +34,9 @@ az storage container create \
   --account-name $STORAGE_ACCOUNT \
   --output none
 
+# Automatically update provider.tf with the correct storage account name
+sed -i "s/storage_account_name.*=.*/storage_account_name = \"$STORAGE_ACCOUNT\"/" provider.tf
+
 echo ""
-echo "   Backend ready. Update provider.tf backend block with:"
-echo "   resource_group_name  = \"$RESOURCE_GROUP\""
-echo "   storage_account_name = \"$STORAGE_ACCOUNT\""
-echo "   container_name       = \"$CONTAINER\""
-echo ""
-echo "Then run: terraform init"
+echo "✅ Backend ready and provider.tf updated automatically."
+echo "   Storage account: $STORAGE_ACCOUNT"
