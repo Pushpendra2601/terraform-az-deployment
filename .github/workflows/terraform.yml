@@ -1,35 +1,67 @@
-name: Terraform Azure Deployment
+name: Terraform Deploy
 
 on:
   push:
     branches:
       - development
+  pull_request:
+    branches:
+      - development
 
 jobs:
   terraform:
+    name: Terraform Plan & Apply
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: templates   # all steps run inside templates/
 
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
 
-    - name: Checkout Code
-      uses: actions/checkout@v4
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
 
-    - name: Azure Login
-      uses: azure/login@v2
-      with:
-        creds: ${{ secrets.AZURE_CREDENTIALS }}
+      - name: Set ARM env vars from AZURE_CREDENTIALS
+        run: |
+          echo "ARM_CLIENT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientId)" >> $GITHUB_ENV
+          echo "ARM_CLIENT_SECRET=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .clientSecret)" >> $GITHUB_ENV
+          echo "ARM_SUBSCRIPTION_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .subscriptionId)" >> $GITHUB_ENV
+          echo "ARM_TENANT_ID=$(echo '${{ secrets.AZURE_CREDENTIALS }}' | jq -r .tenantId)" >> $GITHUB_ENV
 
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v3
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.7.0
 
-    - name: Terraform Init
-      run: terraform init
-      working-directory: terra-IaC
+      # bootstrap.sh only runs if the tfstate storage account doesn't exist yet
+      - name: Bootstrap Remote State (if not exists)
+        run: |
+          EXISTS=$(az storage account check-name --name tfstatestore \
+            --query nameAvailable -o tsv 2>/dev/null || echo "true")
+          if [ "$EXISTS" = "true" ]; then
+            echo "Running bootstrap..."
+            bash bootstrap.sh
+          else
+            echo "Backend already exists, skipping bootstrap."
+          fi
 
-    - name: Terraform Plan
-      run: terraform plan
-      working-directory: terra-IaC
+      - name: Terraform Init
+        run: terraform init
 
-    - name: Terraform Apply
-      run: terraform apply -auto-approve
-      working-directory: terra-IaC
+      - name: Terraform Format Check
+        run: terraform fmt -check
+
+      - name: Terraform Validate
+        run: terraform validate
+
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      # Apply only on push to development, not on PRs
+      - name: Terraform Apply
+        if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+        run: terraform apply -auto-approve tfplan
